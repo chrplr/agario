@@ -11,7 +11,8 @@ AI bots in a 4000×4000 arena, with food, splitting, mass ejection and viruses.
 Implements the specification in [`description.md`](description.md).
 
 An AI agent can play it too: the simulation is served as a
-[Gymnasium](https://gymnasium.farama.org/) environment. See [README-AI.md](README-AI.md).
+[Gymnasium](https://gymnasium.farama.org/) environment — see
+[Letting an agent play](#letting-an-agent-play).
 
 ## Install
 
@@ -142,6 +143,75 @@ agario -version        # print version and platform
 | `T` | toggle autopilot |
 | `R` | respawn after death |
 | `Esc` | quit |
+
+## Letting an agent play
+
+The same game is available as a [Gymnasium](https://gymnasium.farama.org/) environment, so
+a reinforcement-learning agent can play against the same bots, in the same arena, under
+the same rules a human plays under. **The agent drives one cell with a heading and a
+trigger**, which is what the mouse and the `Space`/`W` keys do — it is given no action a
+player does not have, and it sees only what is within its view radius, the same horizon
+the camera gives you.
+
+The rules are not reimplemented in Python. A small Go binary serves the simulation over a
+line-oriented JSON protocol on stdin/stdout, and the Python package is a client:
+
+```sh
+go build -o agario-env ./cmd/agario-env
+pip install -e python
+```
+
+```python
+import gymnasium, agario_gym
+
+env = gymnasium.make("Agario-Small-v0")
+obs, info = env.reset(seed=0)
+obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+```
+
+The protocol is meant to be driveable by hand, which is also how to check the binary
+works:
+
+```console
+$ ./agario-env
+{"id":1,"cmd":"hello"}
+{"id":2,"cmd":"reset","env_id":0,"seed":7}
+{"id":3,"cmd":"step","env_id":0,"action":[4,1]}
+```
+
+Before training anything, find out what the numbers should look like:
+
+```console
+$ python python/examples/random_agent.py --episodes 5
+policy    final mass  best mass  survived    reward
+---------------------------------------------------
+random           7.2       28.2     23.0s     -3.63
+greedy          72.8       72.8     30.0s      1.07
+```
+
+`greedy` is twenty lines of heuristic that never splits: flee anything that can eat you,
+otherwise eat the nearest thing you can. A learned policy that does not beat it has not
+learned anything worth having. CI runs this comparison, because it is the only check that
+catches the observation encoding or the heading mapping breaking in a way the unit tests
+cannot see.
+
+Many worlds share one server process, so a vectorised run costs one child process and one
+round trip per batched step rather than N of each:
+
+```python
+envs = gymnasium.make_vec("Agario-Small-v0", num_envs=16)
+```
+
+That sustains roughly 3,000 agent steps per second at full population. `agario-env` links
+no SDL — `internal/game` has no graphics dependency — so a training loop pulls in nothing
+but the Go runtime, and the environment server is exactly the simulation the playable game
+runs.
+
+New to this? [README-AI.md](README-AI.md) is a step-by-step guide that assumes no prior
+Gymnasium experience. [python/README.md](python/README.md) is the reference: the action
+and observation spaces, the reward schemes, seeding, and the vectorised environment.
+
+---
 
 ## How SDL is loaded
 
