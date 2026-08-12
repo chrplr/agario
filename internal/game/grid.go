@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Christophe Pallier
+// SPDX-License-Identifier: Apache-2.0
+
 package game
 
 // Grid is a uniform spatial hash over the arena, rebuilt each tick. It exists

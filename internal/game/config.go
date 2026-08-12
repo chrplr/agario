@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Christophe Pallier
+// SPDX-License-Identifier: Apache-2.0
+
 package game
 
 // All tunable constants live here. Every distance is in world units and every

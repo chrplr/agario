@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Christophe Pallier
+// SPDX-License-Identifier: Apache-2.0
+
 package render
 
 import "github.com/Zyko0/go-sdl3/sdl"

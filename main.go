@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Christophe Pallier
+// SPDX-License-Identifier: Apache-2.0
+
 // Command agario is a single-player agar.io clone: one human player against
 // AI bots in a bounded arena, with splitting, mass ejection and viruses.
 //
@@ -117,19 +120,20 @@ func run(seed int64) error {
 	}
 	defer sdl.Quit()
 
+	winW, winH := initialSize()
 	window, renderer, err := sdl.CreateWindowAndRenderer(
-		"agar.io — Go + SDL3", *flagWidth, *flagHeight, sdl.WINDOW_RESIZABLE)
+		"agar.io — Go + SDL3", winW, winH, sdl.WINDOW_RESIZABLE)
 	if err != nil {
 		return fmt.Errorf("creating window: %w", err)
 	}
 	defer window.Destroy()
 	defer renderer.Destroy()
 
-	renderer.SetVSync(1)
+	setVSync(renderer)
 
 	outW, outH, err := renderer.RenderOutputSize()
 	if err != nil {
-		outW, outH = int32(*flagWidth), int32(*flagHeight)
+		outW, outH = int32(winW), int32(winH)
 	}
 
 	cam := render.NewCamera(outW, outH)
@@ -168,7 +172,7 @@ func run(seed int64) error {
 	// Headed screenshot mode: draw one frame, read it back through SDL and
 	// save it. This verifies the real render path without depending on a
 	// desktop screenshot tool.
-	if *flagShot != "" {
+	if *flagShot != "" && canSaveFiles() {
 		// Read back before Present: after the swap the backbuffer is undefined.
 		rd.Draw(w, 60, false)
 		surface, err := renderer.ReadPixels(nil)
