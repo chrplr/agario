@@ -1,0 +1,96 @@
+name: Deploy WebAssembly build to Pages
+
+on:
+  push:
+    branches: [main]
+    # Docs-only changes don't alter the built game.
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One Pages deployment at a time; cancel superseded runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # The game. Its committed go.mod requires the published go-sdl3, so the
+      # native build and `go get` keep working for everyone.
+      - name: Checkout game
+        uses: actions/checkout@v7
+        with:
+          path: agario
+
+      # The browser build needs SDL3 compiled to Emscripten plus js/wasm
+      # bindings that upstream go-sdl3 still ships stubbed (SetTextureColorMod,
+      # SetBlendMode and friends all panic there, and upstream never sizes the
+      # canvas, so nothing renders at all). The fork supplies both, plus the
+      # wasmsdl bundler that carries sdl.js and sdl.wasm.
+      - name: Checkout go-sdl3-wasm fork
+        uses: actions/checkout@v7
+        with:
+          repository: chrplr/go-sdl3-wasm
+          ref: wasm-render-fixes
+          path: go-sdl3-wasm
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: agario/go.mod
+          cache-dependency-path: agario/go.sum
+
+      # Redirect go-sdl3 to the sibling fork for this build only. The replace is
+      # never committed, so it cannot affect native consumers of the module.
+      - name: Point go-sdl3 at the fork
+        working-directory: agario
+        run: go mod edit -replace github.com/Zyko0/go-sdl3=../go-sdl3-wasm
+
+      # wasmsdl compiles with GOOS=js GOARCH=wasm and assembles index.html,
+      # wasm_exec.js, main.wasm, sdl.js and sdl.wasm. This game embeds no
+      # assets, so there is nothing else to copy.
+      - name: Build the WebAssembly bundle
+        working-directory: go-sdl3-wasm
+        run: |
+          go run ./cmd/wasmsdl build \
+            -out "$GITHUB_WORKSPACE/dist" \
+            -html "$GITHUB_WORKSPACE/agario/web/index.html" \
+            "$GITHUB_WORKSPACE/agario"
+
+      - name: List the bundle
+        run: ls -lh dist
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Pages deployment fails intermittently with "Deployment failed, try
+      # again later"; retry rather than fail the run.
+      - id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+      - id: retry1
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
+        run: sleep 30
+      - if: steps.deployment.outcome == 'failure' && steps.retry1.outcome == 'failure'
+        uses: actions/deploy-pages@v5

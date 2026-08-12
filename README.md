@@ -6,6 +6,8 @@ A single-player [agar.io](https://en.wikipedia.org/wiki/Agar.io) clone in Go, re
 SDL3 via [`Zyko0/go-sdl3`](https://github.com/Zyko0/go-sdl3). You play one cell against
 AI bots in a 4000×4000 arena, with food, splitting, mass ejection and viruses.
 
+**▶ Play it in your browser: <https://chrplr.github.io/agario/>**
+
 Implements the specification in [`description.md`](description.md).
 
 ## Install
@@ -72,6 +74,41 @@ Stamp a version into the binary with
 On Linux you can shrink the binary by ~1.4 MB by dropping the embedded SDL fallback, at
 the cost of requiring `libsdl3-0` on the target machine — see `loadSDL` in `main.go`.
 
+### Build for the browser (WebAssembly)
+
+The browser build needs [`chrplr/go-sdl3-wasm`](https://github.com/chrplr/go-sdl3-wasm)
+(branch `wasm-render-fixes`), cloned as a **sibling directory**. Upstream `go-sdl3`
+compiles for `GOOS=js` but is not usable: it ships most js bindings stubbed with
+`panic("not implemented on js")` — including `SetTextureColorMod`, `SetAlphaMod`,
+`SetBlendMode` and `SetScaleMode`, which every cell here depends on — and it never sizes
+the canvas, so nothing renders at all.
+
+```bash
+git clone https://github.com/chrplr/go-sdl3-wasm ../go-sdl3-wasm
+cd ../go-sdl3-wasm && git checkout wasm-render-fixes && cd -
+
+go mod edit -replace github.com/Zyko0/go-sdl3=../go-sdl3-wasm
+go run ../go-sdl3-wasm/cmd/wasmsdl serve -html web/index.html .   # localhost:8080
+git checkout go.mod                                               # see below
+```
+
+**Never commit that `replace`.** `go.mod` stays on the published `go-sdl3` so `go get`,
+the CI job and the six-platform release build keep working for everyone; the fork is
+applied only for a browser build, and in CI only ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
+
+`wasmsdl` emits five files — `index.html`, `wasm_exec.js`, `main.wasm`, `sdl.js`,
+`sdl.wasm` — about 6 MB total, roughly 2.2 MB gzipped. `sdl.js`/`sdl.wasm` are SDL3
+compiled with Emscripten, shipped inside the bundler; the Go program is a separate wasm
+module that calls into it through `syscall/js`. The game embeds no images, fonts or
+sounds, so there are no assets to serve alongside.
+
+Browser-specific behaviour lives in [`platform_js.go`](platform_js.go) (with
+[`platform_notjs.go`](platform_notjs.go) as its native twin): the window is created at
+the browser viewport size, `SetVSync` is skipped (it has no js binding, and
+`requestAnimationFrame` already paces frames), and `-shot` is disabled since there is no
+filesystem. Resizing the browser window takes effect on reload — SDL's web backend takes
+the window size from the canvas at creation and there is no resize path.
+
 ## Running
 
 ```
@@ -124,6 +161,9 @@ No `SDL3_ttf` is required — all text uses SDL3's built-in 8×8 debug font.
 
 ```
 main.go               SDL setup, event loop, fixed-timestep accumulator, headless mode
+platform_notjs.go     native window size, vsync, screenshot support
+platform_js.go        the browser twin of the above
+web/index.html        page shell for the WebAssembly build
 internal/game/        the simulation — imports no SDL, so it is testable headlessly
   config.go           every tunable constant
   entity.go           Blob, Owner, Food, Ejecta, Virus; mass/radius/speed formulas
@@ -204,3 +244,11 @@ actual pellets (so they parked on empty ground and starved).
 
 Tests that need an isolated scenario set `FoodTarget`/`BotTarget`/`VirusTarget` to zero
 to stop `maintain()` repopulating the arena underneath them.
+
+## License
+
+Copyright (c) 2026 Christophe Pallier.
+
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Every source file carries an
+`SPDX-License-Identifier: Apache-2.0` header.

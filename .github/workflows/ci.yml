@@ -36,6 +36,13 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      # Compiles against the *published* go-sdl3, so this only proves no
+      # platform-specific import has crept in that would break the browser
+      # build. The bundle that actually runs is built in pages.yml against the
+      # go-sdl3-wasm fork.
+      - name: Build for js/wasm
+        run: GOOS=js GOARCH=wasm go build ./...
+
       # internal/game imports no SDL, so the simulation can be exercised on a
       # runner with no display and no SDL3 installed. This catches panics, NaNs
       # and runaway populations that the unit tests would not.

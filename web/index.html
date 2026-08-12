@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  Copyright (c) 2026 Christophe Pallier
+  SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agar.io clone — Go + SDL3</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #f2f3f5; }
+      /* SDL's web backend takes the window size from the canvas CSS box, so it
+         must not collapse to zero; go-sdl3 sets it at window creation from the
+         size main.go asks for (the browser viewport). */
+      #canvas { display: block; }
+      #loading {
+        position: absolute; inset: 0; display: flex; gap: 10px;
+        flex-direction: column; align-items: center; justify-content: center;
+        font-family: system-ui, sans-serif; color: #40444c;
+      }
+      #loading a { color: #1e6ec8; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="loading">
+      <p>Loading… (about 6 MB)</p>
+      <p><a href="https://github.com/chrplr/agario">source code</a></p>
+    </div>
+    <script type="text/javascript">
+      var canvasElement = document.getElementById('canvas');
+      canvasElement.addEventListener('webglcontextlost', (e) => {
+        alert('WebGL context lost. You will need to reload the page.');
+        e.preventDefault();
+      }, false);
+      // Module must exist, with its canvas, before sdl.js runs.
+      var Module = {
+        print(...args) { console.log(...args); },
+        printErr(...args) { console.error(...args); },
+        canvas: canvasElement,
+      };
+    </script>
+    <!-- Load order matters: Emscripten SDL3 first, then the Go runtime, then
+         the game. sdl.js is synchronous, so Module is populated before Go
+         starts calling into it. -->
+    <script type="text/javascript" src="sdl.js"></script>
+    <script type="text/javascript" src="wasm_exec.js"></script>
+    <script>
+      if (!WebAssembly.instantiateStreaming) {
+        WebAssembly.instantiateStreaming = async (resp, importObject) => {
+          const source = await (await resp).arrayBuffer();
+          return await WebAssembly.instantiate(source, importObject);
+        };
+      }
+      const go = new Go();
+      WebAssembly.instantiateStreaming(fetch("main.wasm"), go.importObject).then((result) => {
+        document.getElementById('loading').remove();
+        go.run(result.instance);
+      });
+    </script>
+  </body>
+</html>
