@@ -1,0 +1,117 @@
+name: Release
+
+# Tag a commit and push the tag to cut a release:
+#   git tag -a v0.1.0 -m "first release" && git push origin v0.1.0
+# workflow_dispatch builds the same artifacts without publishing a release,
+# which is how to check the matrix still works without burning a version number.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      # Every target is built here on Linux with CGO_ENABLED=0. go-sdl3 is a
+      # purego binding that dlopens SDL3 at runtime instead of linking against
+      # it, so no per-OS runner, SDK or cross-toolchain is needed. All six
+      # GOOS/GOARCH pairs are purego Tier 1 and need no cgo.
+      #
+      # Windows keeps the default console subsystem rather than -H=windowsgui:
+      # the binary has real CLI modes (-headless, -shot) whose output would go
+      # nowhere otherwise, along with any startup error message.
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          binary=agario
+          if [ "$GOOS" = "windows" ]; then binary=agario.exe; fi
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${version}" \
+            -o "dist/${binary}" .
+
+      # Ship the docs alongside the binary: a downloaded archive should explain
+      # its own controls without a trip back to the repo.
+      - name: Package
+        run: |
+          name="agario-${GITHUB_REF_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cp README.md description.md dist/
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -r "../${name}.zip" .
+            echo "ASSET=${name}.zip" >> "$GITHUB_ENV"
+          else
+            tar czf "../${name}.tar.gz" .
+            echo "ASSET=${name}.tar.gz" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    # workflow_dispatch runs have no tag to attach a release to, so they stop
+    # after building and leave the artifacts on the run.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          body: |
+            ## Install
+
+            Download the archive for your platform, unpack it and run `agario`.
+
+            No SDL3 installation is required: the binary uses the system SDL3
+            if one is present, and otherwise unpacks its own copy. There is no
+            cgo, so nothing needs a compiler or runtime libraries.
+
+            On macOS the binary is unsigned, so Gatekeeper will block the first
+            run — allow it under System Settings > Privacy & Security, or
+            `xattr -d com.apple.quarantine agario`.
+
+            ## Controls
+
+            Mouse steers, `Space` splits, `W` ejects mass, `P` pauses,
+            `T` toggles autopilot, `R` respawns, `Esc` quits.

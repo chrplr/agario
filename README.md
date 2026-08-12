@@ -6,16 +6,82 @@ AI bots in a 4000×4000 arena, with food, splitting, mass ejection and viruses.
 
 Implements the specification in [`description.md`](description.md).
 
+## Install
+
+### Download a binary
+
+Grab the archive for your platform from the
+[releases page](https://github.com/chrplr/agario/releases), unpack it and run `agario`.
+Builds are published for Linux, macOS and Windows on both amd64 and arm64.
+
+**No SDL3 installation is required.** The binary uses the system SDL3 if one is present
+and otherwise unpacks its own bundled copy to a temporary directory. There is no cgo, so
+nothing needs a compiler or extra runtime libraries.
+
+```bash
+tar xzf agario-v0.1.0-linux-amd64.tar.gz
+./agario
+```
+
+**macOS.** The binaries are unsigned and unnotarized, so Gatekeeper quarantines anything
+downloaded through a browser and refuses to launch it ("cannot be opened because the
+developer cannot be verified"). Strip the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine agario
+./agario
+```
+
+If `xattr` reports `No such xattr`, the file was never quarantined — downloading with
+`curl` or `wget` does not set it — and you can just run it. The alternative is to try
+launching once, then approve it under **System Settings → Privacy & Security**.
+
+**Windows.** SmartScreen may warn about an unrecognized publisher for the same reason;
+choose *More info → Run anyway*. A console window opens alongside the game, which is
+deliberate: the CLI modes below print there.
+
+### Build from source
+
+Requires **Go 1.25+**. Nothing else — no C compiler, no SDL development headers.
+
+```bash
+git clone https://github.com/chrplr/agario
+cd agario
+go build          # produces ./agario
+./agario
+```
+
+Or run it straight from the checkout with `go run .`.
+
+To cross-compile, set `GOOS`/`GOARCH`. Because `go-sdl3` is a purego binding that opens
+SDL3 at runtime rather than linking it, every supported target builds from any host with
+no SDK or cross-toolchain:
+
+```bash
+CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -o agario.exe .
+CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -o agario-macos .
+```
+
+Supported targets are Linux, macOS and Windows on amd64 and arm64 — all
+[purego Tier 1](https://github.com/ebitengine/purego#supported-platforms), all cgo-free.
+Stamp a version into the binary with
+`-ldflags="-X main.version=$(git describe --tags)"`; `agario -version` prints it.
+
+On Linux you can shrink the binary by ~1.4 MB by dropping the embedded SDL fallback, at
+the cost of requiring `libsdl3-0` on the target machine — see `loadSDL` in `main.go`.
+
 ## Running
 
 ```
-go run .                 # play
-go run . -demo           # AI drives the player, camera follows the leader
-go run . -headless       # simulate with no window, print stats and exit
+agario                 # play
+agario -demo           # AI drives the player, camera follows the leader
+agario -headless       # simulate with no window, print stats and exit
+agario -version        # print version and platform
 ```
 
 | Flag | Meaning |
 |---|---|
+| `-version` | print the version and platform, then exit |
 | `-seed N` | world seed (0 = time-based) |
 | `-w`, `-h` | window size (default 1280×720) |
 | `-demo` | autopilot; also toggled in-game with `T` |
@@ -35,16 +101,20 @@ go run . -headless       # simulate with no window, print stats and exit
 | `R` | respawn after death |
 | `Esc` | quit |
 
-## Requirements
-
-Go 1.25+ and SDL3 at runtime (`libSDL3.so.0`; on Debian/Ubuntu, `apt install libsdl3-0`).
+## How SDL is loaded
 
 `go-sdl3` is a [purego](https://github.com/ebitengine/purego) binding: it `dlopen`s the
-shared library at startup, so **there is no cgo and no SDL dev headers are needed**. All
-996 symbols are resolved eagerly at load and a missing one panics, so an SDL3 older than
-the binding expects will fail immediately rather than degrade. To bundle SDL instead of
-using the system copy, replace the `sdl.LoadLibrary` call in `main.go` with
-`defer binsdl.Load().Unload()`.
+shared library at startup rather than linking it, so **there is no cgo and no SDL dev
+headers are involved**, and cross-compiling needs nothing but `GOOS`/`GOARCH`.
+
+`loadSDL` in `main.go` tries the system library first (`libSDL3.so.0`, `SDL3.dll`,
+`libSDL3.dylib`) and falls back to the copy `binsdl` embeds in the binary. Preferring the
+system copy picks up distro security updates; the fallback is what makes a downloaded
+release run on a machine with no SDL3 at all. On Debian/Ubuntu the system copy is
+`apt install libsdl3-0`.
+
+One sharp edge: all 996 symbols are resolved eagerly at load and a missing one **panics**,
+so an SDL3 older than the binding expects fails immediately rather than degrading.
 
 No `SDL3_ttf` is required — all text uses SDL3's built-in 8×8 debug font.
 

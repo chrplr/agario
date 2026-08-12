@@ -10,14 +10,21 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"time"
 
 	"agario/internal/game"
 	"agario/internal/render"
+	"github.com/Zyko0/go-sdl3/bin/binsdl"
 	"github.com/Zyko0/go-sdl3/sdl"
 )
 
+// version is set at build time via -ldflags="-X main.version=...". Release
+// builds stamp it with the git tag; it stays "dev" for a plain `go build`.
+var version = "dev"
+
 var (
+	flagVersion  = flag.Bool("version", false, "print the version and exit")
 	flagHeadless = flag.Bool("headless", false, "run the simulation with no window and exit")
 	flagTicks    = flag.Int("ticks", 20000, "number of ticks to run in headless mode")
 	flagSeed     = flag.Int64("seed", 0, "world seed (0 means time-based)")
@@ -30,6 +37,11 @@ var (
 
 func main() {
 	flag.Parse()
+
+	if *flagVersion {
+		fmt.Printf("agario %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		return
+	}
 
 	seed := *flagSeed
 	if seed == 0 {
@@ -82,14 +94,23 @@ func runHeadless(seed int64, ticks int) {
 	}
 }
 
-func run(seed int64) error {
-	// The system libSDL3.so.0 is used directly; go-sdl3 is a purego binding, so
-	// no cgo and no dev headers are involved. Swap in binsdl.Load() to embed the
-	// library instead.
-	if err := sdl.LoadLibrary(sdl.Path()); err != nil {
-		return fmt.Errorf("loading %s (try: apt install libsdl3-0): %w", sdl.Path(), err)
+// loadSDL loads SDL3 and returns a cleanup function. go-sdl3 is a purego
+// binding, so this is a dlopen at runtime: no cgo, no dev headers, and
+// cross-compiling needs nothing but GOOS/GOARCH.
+//
+// The system library is preferred, so a distro-patched SDL is picked up and the
+// embedded copy stays unused. Falling back to binsdl is what lets a downloaded
+// release binary run on a machine with no SDL3 installed; it unpacks its own
+// copy to a temp directory.
+func loadSDL() func() {
+	if err := sdl.LoadLibrary(sdl.Path()); err == nil {
+		return func() { sdl.CloseLibrary() }
 	}
-	defer sdl.CloseLibrary()
+	return binsdl.Load().Unload
+}
+
+func run(seed int64) error {
+	defer loadSDL()()
 
 	if err := sdl.Init(sdl.INIT_VIDEO); err != nil {
 		return fmt.Errorf("sdl init: %w", err)
