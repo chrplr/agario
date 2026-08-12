@@ -132,7 +132,46 @@ trip per batched step instead of sixteen.
 Start on `Agario-Small-v0` (4 bots, 200 food). `Agario-v0` is the full game and is a much
 harder exploration problem.
 
-## 7. Reproducibility
+## 7. What to expect
+
+Four 1M-step PPO runs (`MlpPolicy`, 16 batched worlds, `n_steps=256`, `lr=3e-4`), each
+evaluated over 5 episodes against the same baselines. Best mass reached:
+
+| setting | random | greedy | PPO |
+|---|---|---|---|
+| `Agario-Small-v0` (200 food, 4 bots, 4 viruses) | 28 | **76** | 29 |
+| the same, `death_penalty=0.5` | 28 | **76** | 31 |
+| 2000 food, **no bots or viruses** | 34 | 139 | **338** |
+| 1000 food, 4 bots, 4 viruses | 30 | **299** | 189 |
+
+Read those rows together, because separately each one misleads.
+
+**PPO learns the game readily when nothing is hunting it** — row three, where it beats the
+heuristic by 2.4×. So the observation encoding, the action mapping and the reward are not
+the obstacle; the pipeline works.
+
+**It is beaten whenever opponents are present**, even with food five times denser than the
+default (row four, where it reaches 63% of greedy while still surviving the full episode).
+On the shipped `Agario-Small-v0` it barely grows at all.
+
+Two things this cost me, so you do not repeat them:
+
+- **The death penalty is not the problem.** It looks like it should be: one death costs 5
+  while tripling your mass over a whole episode earns only `log(3) ≈ 1.1`, so the
+  arithmetic says the agent should hide. Dropping the penalty tenfold moved best mass from
+  29 to 31. The hypothesis was clean, plausible, and wrong.
+- **Inspect the policy before theorising about the reward.** One diagnostic settled it: the
+  trained policy agreed with the greedy heading 4% of the time, against 6% for random
+  guessing, and spent 60% of its steps requesting a split. Splitting is a no-op below 36
+  mass, so nothing in the gradient discourages it — the policy had not learned to steer at
+  all, and no amount of reward rebalancing was going to change that.
+
+The gap is exploration, not machinery. Food at the default density is rare enough that a
+policy which has not yet learned to steer almost never eats, so the signal that would
+teach it to steer never arrives; the bots then end the episode before it can. Starting on
+dense food and annealing towards the real density is the obvious next thing to try.
+
+## 8. Reproducibility
 
 ```python
 obs, info = env.reset(seed=1234)
@@ -145,7 +184,7 @@ Worth knowing: unlike a puzzle game, the world here is *generated* randomly, and
 generation happens in Go. The seed therefore has to cross the wire. `options={"seed": n}`
 pins the world directly, independently of the Gymnasium seed.
 
-## 8. Talking to the server yourself
+## 9. Talking to the server yourself
 
 You do not need Python. The protocol is one JSON object per line, and it is meant to be
 typed by hand:
@@ -165,7 +204,7 @@ observation tensor and the episode budget all live in the Python client, so you 
 any of them without touching Go. The handshake reports the arena size, the frame skip and
 every array length, so the client never hardcodes a shape.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Cause |
 |---|---|
