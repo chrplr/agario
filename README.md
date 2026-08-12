@@ -10,6 +10,9 @@ AI bots in a 4000×4000 arena, with food, splitting, mass ejection and viruses.
 
 Implements the specification in [`description.md`](description.md).
 
+An AI agent can play it too: the simulation is served as a
+[Gymnasium](https://gymnasium.farama.org/) environment. See [README-AI.md](README-AI.md).
+
 ## Install
 
 ### Download a binary
@@ -178,6 +181,9 @@ internal/render/      all remaining SDL calls
   camera.go           world<->screen, zoom, smoothing, arena clamp
   draw.go             world, HUD, leaderboard, minimap
   text.go             scaled debug-font helpers
+cmd/agario-env/       the RL environment server (no SDL)
+internal/agarienv/    its JSON-lines protocol, sessions and dispatch
+python/               the Gymnasium client — see README-AI.md
 ```
 
 ### Design notes

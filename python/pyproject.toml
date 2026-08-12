@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agario-gym"
+version = "0.1.0"
+description = "agario as a Gymnasium environment, sharing its simulation with the playable game"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Christophe Pallier", email = "christophe@pallier.org" }]
+keywords = ["gymnasium", "reinforcement-learning", "agar.io", "multi-agent", "games"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["gymnasium>=1.0", "numpy>=1.21"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-timeout>=2.0"]
+rl = ["stable-baselines3>=2.3"]
+
+[project.urls]
+Homepage = "https://github.com/chrplr/agario"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agario_gym"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No test should ever hang: the failure mode this package is most exposed to is
+# a blocked pipe, which without a timeout looks like a test that never finishes.
+timeout = 180
