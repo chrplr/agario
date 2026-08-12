@@ -1,5 +1,7 @@
 # agario
 
+[![CI](https://github.com/chrplr/agario/actions/workflows/ci.yml/badge.svg)](https://github.com/chrplr/agario/actions/workflows/ci.yml)
+
 A single-player [agar.io](https://en.wikipedia.org/wiki/Agar.io) clone in Go, rendered with
 SDL3 via [`Zyko0/go-sdl3`](https://github.com/Zyko0/go-sdl3). You play one cell against
 AI bots in a 4000×4000 arena, with food, splitting, mass ejection and viruses.
