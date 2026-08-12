@@ -32,16 +32,37 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--eval-episodes", type=int, default=5)
     parser.add_argument("--save", default="", help="path to write the trained model to")
+    # The reward balance is the first thing to reach for when a run learns to
+    # survive without growing: one death costs death_penalty, while tripling
+    # mass over a whole episode earns only log(3) ~ 1.1. Leave the penalty at 5
+    # and the agent will rationally hide in a corner.
+    parser.add_argument("--death-penalty", type=float, default=1.0)
+    parser.add_argument("--kill-bonus", type=float, default=1.0)
     args = parser.parse_args()
 
     try:
         from stable_baselines3 import PPO
+        from stable_baselines3.common.vec_env import VecMonitor
     except ImportError:
         raise SystemExit('stable-baselines3 is missing: pip install -e "python[rl]"')
 
+    from agario_gym.sb3 import make_sb3_vec_env
+
     # One server process holds all the worlds, so this is far cheaper than
     # SubprocVecEnv: no per-env Python interpreter, one round trip per step.
-    envs = gymnasium.make_vec(args.env, num_envs=args.envs)
+    # stable-baselines3 will not take a Gymnasium VectorEnv directly, hence the
+    # adapter — see agario_gym/sb3.py for what it reconciles.
+    spec = gymnasium.spec(args.env)
+    envs = VecMonitor(
+        make_sb3_vec_env(
+            args.envs,
+            max_episode_steps=spec.max_episode_steps,
+            death_penalty=args.death_penalty,
+            kill_bonus=args.kill_bonus,
+            **spec.kwargs,
+        )
+    )
+    envs.seed(args.seed)
 
     model = PPO(
         "MlpPolicy",
@@ -51,6 +72,9 @@ def main() -> None:
         batch_size=256,
         learning_rate=3e-4,
         gamma=0.995,  # episodes are long; growth pays off slowly
+        # An MLP this small is faster on the CPU than on a GPU: the per-batch
+        # transfer costs more than the matrix multiplies save.
+        device="cpu",
         verbose=1,
     )
     model.learn(total_timesteps=args.steps)

@@ -144,19 +144,8 @@ class AgarioVectorEnv(VectorEnv):
     def step(self, actions):
         actions = np.asarray(actions).reshape(self.num_envs, 2)
 
-        # Slots that terminated last step are reset now rather than stepped.
-        resetting = [i for i in range(self.num_envs) if self._autoreset[i]]
-        if resetting:
-            request: dict[str, Any] = {
-                "cmd": "reset_batch",
-                "env_ids": [self._env_ids[i] for i in resetting],
-                "seeds": [self._draw(i) for i in resetting],
-            }
-            if self._config is not None:
-                request["config"] = self._config
-            for i, state in zip(resetting, self.engine.states(request)):
-                self._states[i] = state
-                self._elapsed[i] = 0
+        # Slots that ended last step are reset now rather than stepped.
+        self._reset_slots([i for i in range(self.num_envs) if self._autoreset[i]])
 
         stepping = [i for i in range(self.num_envs) if not self._autoreset[i]]
         rewards = np.zeros(self.num_envs, dtype=np.float64)
@@ -213,6 +202,35 @@ class AgarioVectorEnv(VectorEnv):
             pass
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _reset_slots(self, idx: list[int]) -> None:
+        """Give the listed slots fresh worlds, in one round trip."""
+        if not idx:
+            return
+        request: dict[str, Any] = {
+            "cmd": "reset_batch",
+            "env_ids": [self._env_ids[i] for i in idx],
+            "seeds": [self._draw(i) for i in idx],
+        }
+        if self._config is not None:
+            request["config"] = self._config
+        for i, state in zip(idx, self.engine.states(request)):
+            self._states[i] = state
+            self._elapsed[i] = 0
+
+    def flush_autoreset(self) -> np.ndarray:
+        """Perform any pending autoresets now and return fresh observations.
+
+        This class follows Gymnasium's NEXT_STEP convention, where a slot that
+        ended is reborn on the following step. Adapters for libraries that
+        expect same-step autoreset — stable-baselines3 among them — call this
+        immediately after a step to bring the two conventions into line.
+        """
+        idx = np.nonzero(self._autoreset)[0].tolist()
+        if idx:
+            self._reset_slots(idx)
+            self._autoreset[:] = False
+        return self._observations()
 
     def _draw(self, i: int) -> int:
         """The world seed for slot i, from that slot's own generator."""
