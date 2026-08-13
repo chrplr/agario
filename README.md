@@ -61,6 +61,12 @@ go build          # produces ./agario
 
 Or run it straight from the checkout with `go run .`.
 
+A `Makefile` wraps the commands on this page; `make help` lists them. The ones worth
+knowing are `make build` (game and environment server, version stamped from
+`git describe`), `make ci` (what [`ci.yml`](.github/workflows/ci.yml) runs, so a
+failure shows up before the push), `make cross` (all six release targets into `dist/`)
+and `make wasm` (the browser bundle — see below).
+
 To cross-compile, set `GOOS`/`GOARCH`. Because `go-sdl3` is a purego binding that opens
 SDL3 at runtime rather than linking it, every supported target builds from any host with
 no SDK or cross-toolchain:
@@ -95,6 +101,10 @@ go mod edit -replace github.com/Zyko0/go-sdl3=../go-sdl3-wasm
 go run ../go-sdl3-wasm/cmd/wasmsdl serve -html web/index.html .   # localhost:8080
 git checkout go.mod                                               # see below
 ```
+
+`make wasm-serve` does the same three steps, and `make wasm` writes the bundle to
+`dist/` instead of serving it. Both restore `go.mod` afterwards even if the build fails
+or you interrupt it; pass `WASM_FORK=/path/to/checkout` if the fork is not a sibling.
 
 **Never commit that `replace`.** `go.mod` stays on the published `go-sdl3` so `go get`,
 the CI job and the six-platform release build keep working for everyone; the fork is
