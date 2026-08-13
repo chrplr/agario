@@ -49,6 +49,60 @@ jobs:
       - name: Headless smoke test
         run: go run . -headless -ticks 30000 -seed 7
 
+      # Record a scripted session and replay it, comparing a state checksum on
+      # every tick. The unit tests cover the replay package; this covers the
+      # binary a player actually uses, and it is the check that fails if a
+      # simulation change quietly breaks determinism.
+      - name: Record and replay
+        run: |
+          go run . -headless -ticks 20000 -seed 7 -checksum-every 1 -record session.jsonl.gz
+          go run . -headless -replay session.jsonl.gz
+
+      - name: Upload the recording
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: replay-session
+          path: session.jsonl.gz
+          if-no-files-found: ignore
+
+  # Whether a recording made on one machine replays on another is not something
+  # this project has ever measured. math.Exp and math.Pow take CPU-feature-gated
+  # assembly paths on amd64 and differ by GOARCH, so a mismatch here is expected
+  # rather than a defect — the job records the answer instead of guessing at it,
+  # and does not gate the build.
+  cross-machine-replay:
+    name: Replay an amd64 recording on arm64 (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Record on linux/amd64
+        run: go run . -headless -ticks 20000 -seed 7 -checksum-every 120 -record session.jsonl.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cross-machine-recording
+          path: session.jsonl.gz
+
+  cross-machine-replay-arm:
+    name: Replay it on macos/arm64 (informational)
+    needs: cross-machine-replay
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: cross-machine-recording
+      - name: Replay
+        run: go run . -headless -replay session.jsonl.gz
+
   build:
     name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest

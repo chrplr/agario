@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 
 	"agario/internal/game"
 	"github.com/Zyko0/go-sdl3/sdl"
@@ -24,7 +25,23 @@ type Renderer struct {
 	// virusVerts and virusIdx are scratch for RenderGeometry.
 	virusVerts []sdl.Vertex
 	virusIdx   []int32
+
+	playback Playback
 }
+
+// Playback tells the HUD that the session on screen is recorded or being
+// recorded. Without it the hints would offer controls that do nothing: during
+// playback the mouse does not steer and R does not respawn.
+type Playback struct {
+	Replaying   bool
+	Recording   bool
+	Tick, Ticks int
+	Speed       float64
+	AtEnd       bool
+}
+
+// SetPlayback updates the replay state shown in the HUD.
+func (rd *Renderer) SetPlayback(p Playback) { rd.playback = p }
 
 var (
 	colBackground = sdl.Color{R: 242, G: 243, B: 245, A: 255}
@@ -299,23 +316,57 @@ func (rd *Renderer) drawHUD(w *game.World, fps float64, paused bool) {
 	Text(rd.r, pad, pad, 2, colText, fmt.Sprintf("MASS %d", int(w.Player.Mass())))
 	Text(rd.r, pad, pad+22, 1.5, colText, fmt.Sprintf("BEST %d", int(w.PlayerBest)))
 	Text(rd.r, pad, float32(rd.cam.H)-40, 1.5, colText, fmt.Sprintf("FPS %d", int(fps+0.5)))
-	Text(rd.r, pad, float32(rd.cam.H)-22, 1.5, colText,
-		"MOUSE steer  SPACE split  W eject  P pause  T autopilot  ESC quit")
 
-	if w.Autopilot() {
+	p := rd.playback
+	if p.Replaying {
+		Text(rd.r, pad, float32(rd.cam.H)-22, 1.5, colText,
+			"SPACE pause  LEFT/RIGHT seek  HOME restart  -/= speed  T view  ESC quit")
+	} else {
+		Text(rd.r, pad, float32(rd.cam.H)-22, 1.5, colText,
+			"MOUSE steer  SPACE split  W eject  P pause  T autopilot  ESC quit")
+	}
+
+	switch {
+	case p.Replaying:
+		TextCentered(rd.r, float32(rd.cam.W/2), 18, 2, colBorder,
+			fmt.Sprintf("REPLAY  %s / %s  x%s",
+				clock(p.Tick), clock(p.Ticks), trimFloat(p.Speed)))
+	case p.Recording:
+		TextCentered(rd.r, float32(rd.cam.W/2), 18, 2, colBorder,
+			fmt.Sprintf("REC  %s", clock(p.Tick)))
+	case w.Autopilot():
 		TextCentered(rd.r, float32(rd.cam.W/2), 18, 2, colBorder, "AUTOPILOT")
 	}
 
 	rd.drawLeaderboard(w)
 	rd.drawMinimap(w)
 
-	if w.Player.Dead {
-		cx, cy := float32(rd.cam.W/2), float32(rd.cam.H/2)
+	cx, cy := float32(rd.cam.W/2), float32(rd.cam.H/2)
+	switch {
+	case p.AtEnd:
+		TextCentered(rd.r, cx, cy, 4, colBorder, "END OF RECORDING")
+	case w.Player.Dead:
 		TextCentered(rd.r, cx, cy-20, 4, colBorder, "EATEN")
-		TextCentered(rd.r, cx, cy+20, 2, colText, "press R to respawn")
-	} else if paused {
-		TextCentered(rd.r, float32(rd.cam.W/2), float32(rd.cam.H/2), 4, colText, "PAUSED")
+		// R respawns the player, but only when this session is being played:
+		// during a replay the recording decides when a respawn happened.
+		if !p.Replaying {
+			TextCentered(rd.r, cx, cy+20, 2, colText, "press R to respawn")
+		}
+	case paused:
+		TextCentered(rd.r, cx, cy, 4, colText, "PAUSED")
 	}
+}
+
+// clock formats a tick count as m:ss of simulated time.
+func clock(ticks int) string {
+	s := int(float64(ticks) * game.TickDT)
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// trimFloat prints a speed multiplier without trailing zeroes: "2" rather than
+// "2.000000", and "0.25" rather than "0".
+func trimFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 func (rd *Renderer) drawLeaderboard(w *game.World) {

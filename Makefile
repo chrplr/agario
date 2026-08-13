@@ -36,7 +36,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 # Every target is phony: go's own build cache decides what needs recompiling,
 # and a file target here would skip a rebuild after a source edit.
 .PHONY: help build install run ci fmt fmt-check vet test test-fast bench smoke shot \
-        wasm-check wasm wasm-serve cross python-install python-test \
+        replay-check wasm-check wasm wasm-serve cross python-install python-test \
         python-baselines python-ci clean $(BINARY) $(ENVBIN)
 
 help: ## Show this help
@@ -65,7 +65,7 @@ run: ## Run the game from the checkout (make run ARGS="-seed 7")
 
 # ---------------------------------------------------------------- checks
 
-ci: fmt-check vet test wasm-check smoke ## Everything ci.yml runs
+ci: fmt-check vet test wasm-check smoke replay-check ## Everything ci.yml runs
 
 fmt: ## Rewrite files with gofmt
 	gofmt -w .
@@ -94,6 +94,18 @@ bench: ## Benchmark the simulation step
 # unit tests do not see.
 smoke: ## Headless long run: panics, NaNs, populations
 	$(GO) run . -headless -ticks 30000 -seed 7
+
+# Records a scripted session and replays it, comparing a state checksum at every
+# checkpoint. This is the check that the recording format actually round-trips:
+# the unit tests exercise the package, but only this one goes through the same
+# binary a player would use. -checksum-every 1 costs about 20% here and buys the
+# exact tick of a divergence rather than the second it happened in.
+REPLAY ?= session.jsonl.gz
+
+replay-check: ## Record a headless session and verify it replays exactly
+	$(GO) run . -headless -ticks 20000 -seed 7 -checksum-every 1 -record $(REPLAY)
+	$(GO) run . -headless -replay $(REPLAY)
+	@rm -f $(REPLAY)
 
 # Unlike `smoke`, this goes through the real SDL render path — window, renderer,
 # ReadPixels — so it needs a display and a usable SDL3, and it is the only check
@@ -187,5 +199,5 @@ python-ci: python-test python-baselines ## Everything python.yml runs
 # ---------------------------------------------------------------- housekeeping
 
 clean: ## Remove build outputs
-	rm -f $(BINARY) $(ENVBIN) .go.mod.bak *.bmp *.test *.out
+	rm -f $(BINARY) $(ENVBIN) .go.mod.bak *.bmp *.test *.out *.jsonl *.jsonl.gz
 	rm -rf $(DIST)

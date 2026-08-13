@@ -141,6 +141,10 @@ agario -version        # print version and platform
 | `-warmup N` | simulate N ticks before the first frame |
 | `-headless` | no window; run `-ticks N` and print a summary |
 | `-shot FILE.bmp` | render one frame to a file and exit |
+| `-record FILE` | record the session (`.jsonl`, or `.jsonl.gz` to compress) |
+| `-replay FILE` | play a recording back instead of playing |
+| `-speed N` | replay speed multiplier (default 1) |
+| `-checksum-every N` | ticks between recorded state checksums (0 disables) |
 
 ### Controls
 
@@ -153,6 +157,60 @@ agario -version        # print version and platform
 | `T` | toggle autopilot |
 | `R` | respawn after death |
 | `Esc` | quit |
+
+## Recording and replaying a session
+
+```bash
+agario -record session.jsonl.gz          # play, and write the session out
+agario -replay session.jsonl.gz          # watch it back
+agario -replay session.jsonl.gz -headless   # verify it reproduces exactly
+```
+
+**A recording stores no game state.** It holds the seed and what the player did, and
+replay rebuilds everything else — bots, food, viruses — by re-simulating. That works
+because the simulation is deterministic: a fixed 120 Hz timestep, one seeded RNG on the
+`World`, no wall-clock and no goroutines anywhere in `internal/game`. The whole input
+surface is a steering target per tick plus split, eject, respawn and autopilot.
+
+What gets recorded is the world-space target, not the mouse position: the camera smooths
+its motion using real frame time, so the same pixel means different things on different
+machines. Recording the derived target makes a replay independent of frame rate, window
+size and display — a session recorded at 1280×720 replays correctly at any size.
+
+Roughly 4 MB per hour gzipped. Playback controls are `Space` to pause, `←`/`→` to seek ten
+seconds (hold `Shift` for a minute), `Home` to restart, `-`/`=` to halve or double speed
+and `T` to switch between following the player and the leader. Seeking backwards
+re-simulates from the start, because Go's `math/rand` state cannot be serialised — about
+1.3 s to rewind ten minutes of game time.
+
+Every 120 ticks the recording stores a hash of the whole world, so `-replay -headless`
+reports not just *that* a replay diverged but where and in what:
+
+```
+tick 1920: recorded cd943251f46b4071, replayed 80b32db7cb7ffd13
+    blobs   recorded 16, replayed 15
+    deaths  recorded 1, replayed 0
+```
+
+That costs about 0.2% of a tick, so it is on by default; `-checksum-every 1` narrows a
+divergence to the exact tick once you have one. **Bit-exact replay is promised for the
+same binary on the same machine, and not across machines** — `math.Exp` and `math.Pow`
+take CPU-feature-gated assembly paths on amd64 and differ by architecture and Go version.
+The header records `goos`, `goarch` and the Go version, and a replay warns when they
+differ rather than reporting the mismatch as a bug.
+
+The format is newline-delimited JSON, one record per frame, gzipped when the filename ends
+in `.gz` — the same idiom as the environment protocol, and readable with
+`zcat session.jsonl.gz | head`:
+
+```json
+{"k":"hdr","format":"agario-replay","v":1,"seed":7,"tick_rate":120,...}
+{"k":"t","t":0,"n":2,"x":3500,"y":2000,"a":["split"]}
+{"k":"ck","t":120,"h":"c85bbf9ce0cf7057","time":1,"mass":388,"blobs":16,...}
+```
+
+`make replay-check` records a scripted headless session and verifies it, and CI runs the
+same two commands on every push.
 
 ## Letting an agent play
 
@@ -261,6 +319,11 @@ internal/render/      all remaining SDL calls
   camera.go           world<->screen, zoom, smoothing, arena clamp
   draw.go             world, HUD, leaderboard, minimap
   text.go             scaled debug-font helpers
+internal/replay/      session record and replay (no SDL)
+  format.go           the on-disk records, and the determinism contract
+  recorder.go         appends a session; a nil *Recorder is "not recording"
+  player.go           re-drives a world from a log, seeking and divergences
+  checksum.go         the state hash that proves a replay matched
 cmd/agario-env/       the RL environment server (no SDL)
 internal/agarienv/    its JSON-lines protocol, sessions and dispatch
 python/               the Gymnasium client — see README-AI.md
