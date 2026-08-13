@@ -35,7 +35,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 
 # Every target is phony: go's own build cache decides what needs recompiling,
 # and a file target here would skip a rebuild after a source edit.
-.PHONY: help build install run ci fmt fmt-check vet test test-fast bench smoke \
+.PHONY: help build install run ci fmt fmt-check vet test test-fast bench smoke shot \
         wasm-check wasm wasm-serve cross python-install python-test \
         python-baselines python-ci clean $(BINARY) $(ENVBIN)
 
@@ -94,6 +94,26 @@ bench: ## Benchmark the simulation step
 # unit tests do not see.
 smoke: ## Headless long run: panics, NaNs, populations
 	$(GO) run . -headless -ticks 30000 -seed 7
+
+# Unlike `smoke`, this goes through the real SDL render path — window, renderer,
+# ReadPixels — so it needs a display and a usable SDL3, and it is the only check
+# here that exercises internal/render at all. A fixed seed and warmup make the
+# frame reproducible: the same SHOT_SEED gives the same picture byte for byte,
+# so two .bmp files are worth comparing. The warmup matters for what the frame
+# shows — at 0 every blob is still at the starting mass of 20 and the
+# leaderboard is flat, while 3000 ticks (25 simulated seconds) spreads it to
+# roughly 120 down to 80, which is what the game actually looks like.
+SHOT        ?= shot.bmp
+SHOT_SEED   ?= 7
+SHOT_WARMUP ?= 3000
+SHOT_SIZE   ?= -w 1280 -h 720
+
+shot: ## Render one frame to shot.bmp — needs a display (SHOT=, SHOT_SEED=)
+	@if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ]; then \
+		echo "No DISPLAY or WAYLAND_DISPLAY: -shot opens a real window and will fail."; \
+		echo "On a headless box, run it under a virtual display:"; \
+		echo "  xvfb-run -a make shot"; exit 1; fi
+	$(GO) run . -shot $(SHOT) -seed $(SHOT_SEED) -warmup $(SHOT_WARMUP) $(SHOT_SIZE)
 
 # Compiles against the *published* go-sdl3, so this only proves no
 # platform-specific import has crept in that would break the browser build. The
