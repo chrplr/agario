@@ -3,9 +3,11 @@ name: Deploy WebAssembly build to Pages
 on:
   push:
     branches: [main]
-    # Docs-only changes don't alter the built game.
+    # Docs-only changes don't alter the built game. Neither does the Makefile:
+    # the bundle is built below by wasmsdl, which never reads it.
     paths-ignore:
       - '**.md'
+      - 'Makefile'
   workflow_dispatch:
 
 permissions:
